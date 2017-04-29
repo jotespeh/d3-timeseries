@@ -23,18 +23,19 @@ function(d3,d3tip)
 
 		var drawerHeight = 80
 		var drawerTopMargin = 10
-    var margin = {top:10,bottom:20,left:30,right:10}
+    var margin = {top:10, bottom:20, left:30, right:10}
 
     var series = []
 
-    var yscale = d3.scale.linear()
-    var xscale = d3.time.scale()
+    var yscale = d3.scaleLinear()
+    var xscale = d3.scaleTime()
 		yscale.label = ""
 		xscale.label = ""
 
-		var brush = d3.svg.brush()
+		var brush = d3.brushX()
+ 
 
-    var svg,container,serieContainer,annotationsContainer,drawerContainer,tip,mousevline;
+    var svg, container, serieContainer, annotationsContainer, drawerContainer, tip, mousevline;
 		var fullxscale,tooltipDiv;
 
 		yscale.setformat = function(n){return n.toLocaleString()}
@@ -42,6 +43,8 @@ function(d3,d3tip)
 
 		//default tool tip function
 		var _tipFunction = function(date,series) {
+        
+        var formatDIM = d3.timeFormat("%d %b %Y")
 
 				var spans = '<table style="border:none">'+series.filter(function(d){
 						return d.item!==undefined && d.item!==null
@@ -50,7 +53,7 @@ function(d3,d3tip)
 									'<td style="color:#333333;text-align:right">'+yscale.setformat(d.item[d.aes.y])+'</td></tr>'
 					}).join('')+'</table>'
 
-				return '<h4>'+xscale.setformat(d3.time.day(date))+'</h4>'+spans
+        return '<h4>'+formatDIM(date)+'</h4>'+spans
 			}
 
 
@@ -58,13 +61,14 @@ function(d3,d3tip)
     function createLines(serie){
 			var aes = serie.aes
 			//https://github.com/mbostock/d3/wiki/SVG-Shapes#line_interpolate
+      //TODO -> wie curves als Funktionen passen?
 			if(! serie.options.interpolate)
-				serie.options.interpolate = 'linear'
+				serie.options.interpolate = d3.curveLinear
 
-      var line = d3.svg.line()
+      var line = d3.line()
               .x(functorkeyscale(aes.x,xscale))
               .y(functorkeyscale(aes.y,yscale))
-							.interpolate(serie.options.interpolate)
+							.curve(serie.options.interpolate)
 							.defined(keyNotNull(aes.y))
 
 			serie.line = line
@@ -74,16 +78,16 @@ function(d3,d3tip)
 														serie.aes.y;
 
 			if(aes.ci_up && aes.ci_down){
-				var ciArea = d3.svg.area()
+				var ciArea = d3.area()
 											.x(functorkeyscale(aes.x,xscale))
 											.y0(functorkeyscale(aes.ci_down,yscale))
 											.y1(functorkeyscale(aes.ci_up,yscale))
-											.interpolate(serie.options.interpolate)
+											.curve(serie.options.interpolate)
 				serie.ciArea = ciArea
 			}
 
 			if(aes.diff){
-				serie.diffAreas = [d3.svg.area()
+				serie.diffAreas = [d3.area()
 															.x(functorkeyscale(aes.x,xscale))
 															.y0(functorkeyscale(aes.y,yscale))
 															.y1(function(d){
@@ -91,9 +95,9 @@ function(d3,d3tip)
 																	return yscale(d[aes.diff])
 																return yscale(d[aes.y])
 															})
-															.interpolate(serie.options.interpolate)
+															.curve(serie.options.interpolate)
 															,
-														d3.svg.area()
+														d3.area()
 															.x(functorkeyscale(aes.x,xscale))
 															.y1(functorkeyscale(aes.y,yscale))
 															.y0(function(d){
@@ -101,7 +105,7 @@ function(d3,d3tip)
 																	return yscale(d[aes.diff])
 																return yscale(d[aes.y])
 															})
-															.interpolate(serie.options.interpolate)
+															.curve(serie.options.interpolate)
 														]
 			}
 
@@ -240,10 +244,10 @@ function(d3,d3tip)
 				var smallyscale = yscale.copy()
 																.range([drawerHeight - drawerTopMargin,0])
 				var serie = series[0]
-				var line = d3.svg.line()
+				var line = d3.line()
 										.x(functorkeyscale(serie.aes.x,fullxscale))
 										.y(functorkeyscale(serie.aes.y,smallyscale))
-										.interpolate(serie.options.interpolate)
+										.curve(serie.options.interpolate)
 										.defined(keyNotNull(serie.aes.y))
 				var linepath = drawerContainer.insert("path",":first-child")
 	              .datum(serie.data)
@@ -258,11 +262,11 @@ function(d3,d3tip)
 		}
 
 		function mouseMove(e){
-			var x = d3.mouse(container[0][0])[0]
+			var x = d3.mouse(container._groups[0][0])[0]
 			x = xscale.invert(x)
 			mousevline.datum({x:x,visible:true})
 			mousevline.update()
-			updatefocusRing(x)
+      updatefocusRing(x)
 			updateTip(x)
 		}
 		function mouseOut(e){
@@ -297,7 +301,13 @@ function(d3,d3tip)
       xscale.range([0,width-margin.left-margin.right])
             .domain([d3.min(series.map(fk('dateMin'))),
                     d3.max(series.map(fk('dateMax')))])
-            .nice()
+            //.nice()
+
+      // set brush
+
+        brush.handleSize(2)
+             .on("brush end", brushed)
+             .extent([[0,drawerTopMargin],[width - margin.right - margin.left, drawerHeight]]);
 
 			// if user specify domain
 			if(yscale.fixedomain)
@@ -362,18 +372,22 @@ function(d3,d3tip)
 			}
 			mousevline.update()
 
-      var xAxis = d3.svg.axis().scale(xscale).orient('bottom').tickFormat(xscale.setformat)
-      var yAxis = d3.svg.axis().scale(yscale).orient('left').tickFormat(yscale.setformat)
+      var xAxis = d3.axisBottom().scale(xscale).tickFormat(xscale.setformat)
+      var yAxis = d3.axisLeft().scale(yscale).tickFormat(yscale.setformat)
 
-			brush.x(fullxscale)
-						.on('brush',function(){
-						  xscale.domain(brush.empty() ? fullxscale.domain() : brush.extent());
 
+      function brushed() {
+
+              var s = d3.event.selection || fullxscale.range();
+              
+              // Is brush selection empty? -> reset graph
+              xscale.domain(!s[0] ? fullxscale.domain() : s.map(fullxscale.invert, fullxscale));
 							series.forEach(drawSerie)
 						  svg.select(".focus.x.axis").call(xAxis);
 							mousevline.update()
 							updatefocusRing()
-						})
+              
+						}
 
 			svg.append('g')
 						.attr('class','d3_timeseries focus x axis')
@@ -389,7 +403,7 @@ function(d3,d3tip)
 		       .attr("class", "d3_timeseries brush")
 		       .call(brush)
 		     .selectAll("rect")
-				 		.attr('y',drawerTopMargin)
+			  	 .attr('y',drawerTopMargin)
 		       .attr("height", (drawerHeight - drawerTopMargin));
 
 
