@@ -18,8 +18,8 @@ function(d3,d3tip)
   var timeseries = function()
   {
     //default
-    var height = 480
     var width = 600
+    var height = width*0.8
 
 		var drawerHeight = 80
 		var drawerTopMargin = 10
@@ -49,10 +49,10 @@ function(d3,d3tip)
 				var spans = '<table style="border:none">'+series.filter(function(d){
 						return d.item!==undefined && d.item!==null
 					}).map(function(d){
+            if(!isNaN(d.item[d.aes.y])){
 						return '<tr><td style="color:'+d.options.color+'">'+d.options.label+' </td>'+
 									'<td style="color:#333333;text-align:right">'+yscale.setformat(d.item[d.aes.y])+'</td></tr>'
-					}).join('')+'</table>'
-
+					}}).join('')+'</table>'          
         return '<h4>'+formatDIM(date)+'</h4>'+spans
 			}
 
@@ -243,7 +243,7 @@ function(d3,d3tip)
 		function drawMiniDrawer(){
 				var smallyscale = yscale.copy()
 																.range([drawerHeight - drawerTopMargin,0])
-				var serie = series[0]
+				series.forEach(function(serie){
 				var line = d3.line()
 										.x(functorkeyscale(serie.aes.x,fullxscale))
 										.y(functorkeyscale(serie.aes.y,smallyscale))
@@ -259,6 +259,7 @@ function(d3,d3tip)
 	              .attr('fill','none')
 				if(serie.hasOwnProperty('stroke-dasharray'))
 					linepath.attr('stroke-dasharray',serie['stroke-dasharray'])
+      })
 		}
 
 		function mouseMove(e){
